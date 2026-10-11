@@ -319,7 +319,72 @@ async function handleProductsExcelImport(event){
   }finally{input.value=''}
 }
 
-let zxingControls=null;let lastSaleScanCode='';let lastSaleScanAt=0;async function openScanner(target){scanTarget=target;lastSaleScanCode='';lastSaleScanAt=0;$('scannerModal').classList.add('open');$('scanMessage').textContent=target==='sale'?(lang==='ar'?'امسح المنتجات واحدًا تلو الآخر؛ ستضاف تلقائيًا إلى السلة.':'Scannez les articles un par un : ils seront ajoutés automatiquement au panier.') : t('scanHint');$('manualBarcode').value='';try{if(!window.isSecureContext){$('scanMessage').textContent=lang==='ar'?'يلزم فتح التطبيق عبر HTTPS لتشغيل الكاميرا.':'La caméra nécessite une adresse HTTPS (ou localhost).';return}if(!navigator.mediaDevices?.getUserMedia)throw Error('camera');stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});$('camera').srcObject=stream;await $('camera').play();if('BarcodeDetector'in window){const formats=['ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf','qr_code'];let supported=formats;try{supported=(await BarcodeDetector.getSupportedFormats()).filter(x=>formats.includes(x))}catch(e){}const detector=new BarcodeDetector({formats:supported.length?supported:formats});const loop=async()=>{if(!stream||!$('scannerModal').classList.contains('open'))return;try{const codes=await detector.detect($('camera'));if(codes.length&&codes[0].rawValue){useBarcode(codes[0].rawValue);if(scanTarget!=='sale')return}}catch(e){}scanTimer=setTimeout(loop,scanTarget==='sale'?450:180)};loop();return}if(window.ZXingBrowser?.BrowserMultiFormatReader){const reader=new ZXingBrowser.BrowserMultiFormatReader();zxingControls=await reader.decodeFromVideoElement($('camera'),(result,err)=>{if(result?.getText())useBarcode(result.getText())});return}$('scanMessage').textContent=t('scanUnsupported')}catch(e){$('scanMessage').textContent=(e?.name==='NotAllowedError'?(lang==='ar'?'تم رفض إذن الكاميرا. اسمح لـ Chrome باستخدام الكاميرا.':'Autorisation caméra refusée. Autorisez la caméra dans Chrome.'):t('cameraError'))}}function useBarcode(code){code=String(code||'').trim();if(!code)return;if(scanTarget==='sale'){const now=Date.now();if(code===lastSaleScanCode&&now-lastSaleScanAt<1400)return;lastSaleScanCode=code;lastSaleScanAt=now;const p=db.products.find(x=>norm(x.barcode)===norm(code));if(p){addCart(p.id);$('saleSearch').value='';renderSaleResults();$('scanMessage').textContent=(lang==='ar'?'تمت إضافة '+p.name+' إلى السلة. تابع المسح.':'Ajouté au panier : '+p.name+'. Continuez à scanner.')}else{$('saleSearch').value=code;renderSaleResults();$('scanMessage').textContent=t('unknownBarcode')}return}stopScanner();if(scanTarget==='product'){$('pBarcode').value=code;return}if(scanTarget==='products'){$('productSearch').value=code;renderProducts();return}}function stopScanner(){if(scanTimer)clearTimeout(scanTimer);scanTimer=null;if(zxingControls){try{zxingControls.stop()}catch(e){}zxingControls=null}if(stream){stream.getTracks().forEach(x=>x.stop());stream=null}$('camera').srcObject=null;$('scannerModal').classList.remove('open')}
+let zxingControls=null;let lastSaleScanCode='';let lastSaleScanAt=0;let scanBusy=false;let scanEngine='';
+async function loadZXing(){
+  if(window.ZXingBrowser?.BrowserMultiFormatReader)return true;
+  return new Promise(resolve=>{
+    const existing=document.querySelector('script[data-zxing-loader]');
+    if(existing){existing.addEventListener('load',()=>resolve(!!window.ZXingBrowser?.BrowserMultiFormatReader),{once:true});existing.addEventListener('error',()=>resolve(false),{once:true});if(window.ZXingBrowser?.BrowserMultiFormatReader)resolve(true);return;}
+    const script=document.createElement('script');script.src='https://unpkg.com/@zxing/browser@0.1.5/umd/index.min.js';script.async=true;script.dataset.zxingLoader='1';
+    script.onload=()=>resolve(!!window.ZXingBrowser?.BrowserMultiFormatReader);script.onerror=()=>resolve(false);document.head.appendChild(script);
+  });
+}
+async function openScanner(target){
+  stopScanner();scanTarget=target;lastSaleScanCode='';lastSaleScanAt=0;scanBusy=false;
+  $('scannerModal').classList.add('open');
+  $('scanMessage').textContent=target==='sale'?(lang==='ar'?'وجّه الكاميرا إلى الرمز الشريطي. ستتم إضافة المنتج تلقائيًا إلى السلة.':'Visez un code-barres : le produit sera ajouté automatiquement au panier.') : t('scanHint');
+  $('manualBarcode').value='';
+  try{
+    if(!window.isSecureContext){$('scanMessage').textContent=lang==='ar'?'يجب فتح التطبيق عبر HTTPS لتشغيل الكاميرا.':'La caméra nécessite une adresse HTTPS (ou localhost).';return;}
+    if(!navigator.mediaDevices?.getUserMedia)throw new Error('NO_CAMERA_API');
+    stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}});
+    const video=$('camera');video.setAttribute('playsinline','');video.muted=true;video.srcObject=stream;await video.play();
+    // Prefer ZXing: it works on more Android browsers than BarcodeDetector.
+    const hasZXing=await loadZXing();
+    if(!stream||!$('scannerModal').classList.contains('open'))return;
+    if(hasZXing){
+      scanEngine='zxing';
+      const reader=new ZXingBrowser.BrowserMultiFormatReader();
+      zxingControls=await reader.decodeFromVideoElement(video,(result,err)=>{
+        if(result?.getText())useBarcode(result.getText());
+      });
+      $('scanMessage').textContent=target==='sale'?(lang==='ar'?'الكاميرا تعمل — امسح المنتجات واحدًا تلو الآخر.':'Caméra active — scannez les articles un par un.'):(lang==='ar'?'الكاميرا تعمل. وجّه الرمز إلى الإطار.':'Caméra active. Présentez le code-barres.');
+      return;
+    }
+    if('BarcodeDetector' in window){
+      scanEngine='native';
+      const supportedAll=['ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf','qr_code'];
+      let supported=supportedAll;try{const f=await BarcodeDetector.getSupportedFormats();const filtered=f.filter(x=>supportedAll.includes(x));if(filtered.length)supported=filtered;}catch(e){}
+      const detector=new BarcodeDetector({formats:supported});
+      const loop=async()=>{
+        if(!stream||!$('scannerModal').classList.contains('open'))return;
+        try{if(video.readyState>=2&&video.videoWidth>0){const codes=await detector.detect(video);if(codes.length&&codes[0].rawValue)useBarcode(codes[0].rawValue);}}catch(e){}
+        if(stream&&$('scannerModal').classList.contains('open'))scanTimer=setTimeout(loop,250);
+      };loop();
+      $('scanMessage').textContent=lang==='ar'?'الكاميرا تعمل. وجّه الرمز إلى الإطار.':'Caméra active. Présentez le code-barres.';
+      return;
+    }
+    $('scanMessage').textContent=lang==='ar'?'تعذر تحميل قارئ الرموز. تحقق من الإنترنت أو أدخل الرمز يدويًا.':'Le lecteur de codes-barres n’a pas pu être chargé. Vérifiez Internet ou saisissez le code manuellement.';
+  }catch(e){
+    const msg=e?.name==='NotAllowedError'?'Autorisation caméra refusée. Autorisez la caméra pour ce site dans Chrome.':e?.name==='NotFoundError'?'Aucune caméra détectée sur cet appareil.':e?.name==='NotReadableError'?'La caméra est déjà utilisée par une autre application.':'Caméra indisponible. Vérifiez HTTPS et les autorisations, ou saisissez le code manuellement.';
+    $('scanMessage').textContent=lang==='ar'?(e?.name==='NotAllowedError'?'تم رفض إذن الكاميرا. اسمح لمتصفح Chrome باستخدام الكاميرا.':'تعذر تشغيل الكاميرا. تحقق من HTTPS والأذونات أو أدخل الرمز يدويًا.'):msg;
+  }
+}
+function useBarcode(code){
+  code=String(code||'').trim();if(!code||scanBusy)return;
+  if(scanTarget==='sale'){
+    const now=Date.now();if(code===lastSaleScanCode&&now-lastSaleScanAt<1200)return;
+    lastSaleScanCode=code;lastSaleScanAt=now;
+    const p=db.products.find(x=>norm(x.barcode)===norm(code));
+    if(p){if(Number(p.qty)<=0){$('scanMessage').textContent=t('stockError')+p.name;return;}scanBusy=true;addCart(p.id);$('saleSearch').value='';renderSaleResults();$('scanMessage').textContent=(lang==='ar'?'تمت إضافة '+p.name+' إلى السلة. امسح المنتج التالي.':'Ajouté au panier : '+p.name+'. Scannez le produit suivant.');setTimeout(()=>{scanBusy=false},350);}
+    else{$('scanMessage').textContent=t('unknownBarcode')+' ('+code+'). '+(lang==='ar'?'أضف الرمز إلى بطاقة المنتج أولًا.':'Vérifiez que ce code-barres est enregistré dans Produits.');$('saleSearch').value=code;renderSaleResults();}
+    return;
+  }
+  stopScanner();
+  if(scanTarget==='product'){$('pBarcode').value=code;return;}
+  if(scanTarget==='products'){$('productSearch').value=code;renderProducts();return;}
+}
+function stopScanner(){if(scanTimer)clearTimeout(scanTimer);scanTimer=null;if(zxingControls){try{zxingControls.stop()}catch(e){}zxingControls=null;}if(stream){stream.getTracks().forEach(x=>x.stop());stream=null;}scanEngine='';scanBusy=false;const video=$('camera');if(video)video.srcObject=null;const modal=$('scannerModal');if(modal)modal.classList.remove('open');}
 $('langBtn').onclick=()=>{lang=lang==='fr'?'ar':'fr';applyLang()};$('backupBtn').onclick=backup;$('exportBackup').onclick=backup;$('addProductBtn').onclick=()=>{$('productFormPanel').hidden=false;$('productForm').reset();$('pId').value='';$('pMin').value=db.settings.defaultMin??3;hideProductNameSuggestions()};$('cancelProduct').onclick=()=>{$('productFormPanel').hidden=true;hideProductNameSuggestions()};$('productForm').onsubmit=saveProduct;$('addCategoryBtn').onclick=addCategory;$('productSearch').oninput=renderProducts;$('exportProductsExcel').onclick=downloadProductsExcel;$('importProductsExcel').onchange=handleProductsExcelImport;$('pName').addEventListener('input',renderProductNameSuggestions);$('pName').addEventListener('focus',renderProductNameSuggestions);$('pName').addEventListener('blur',()=>setTimeout(hideProductNameSuggestions,180));$('stockSearch').oninput=renderStock;$('saleSearch').oninput=renderSaleResults;$('saleDiscount').oninput=renderCart;$('scanSale').onclick=()=>openScanner('sale');$('scanProduct').onclick=()=>openScanner('product');$('scanProducts').onclick=()=>openScanner('products');$('clearSale').onclick=()=>{cartItems=[];renderCart()};$('checkout').onclick=()=>checkout(true);$('checkoutOnly').onclick=()=>checkout(false);$('addSellerBtn').onclick=()=>$('sellerFormPanel').hidden=!$('sellerFormPanel').hidden;$('sellerForm').onsubmit=addSeller;$('closeScanner').onclick=stopScanner;$('useManual').onclick=()=>useBarcode($('manualBarcode').value);$('manualBarcode').onkeydown=e=>{if(e.key==='Enter')useBarcode(e.target.value)};$('settingsForm').onsubmit=e=>{e.preventDefault();db.settings.storeName=$('storeName').value.trim()||'Himou Baby';db.settings.currency=$('currency').value;db.settings.defaultMin=Number($('defaultMin').value)||0;saveDB();renderAll();alert(t('save'))};$('restoreFile').onchange=async e=>{
   const file=e.target.files&&e.target.files[0];
   if(!file){e.target.value='';return}

@@ -137,3 +137,15 @@ Type : application web installable (PWA)
 - لا توجد مزامنة بين عدة هواتف. يلزم خادم وقاعدة بيانات مركزية لإضافة هذه الخاصية.
 - صدّر نسخة JSON قبل حذف بيانات المتصفح أو تغيير الهاتف أو تحديث التطبيق. اختبر الاستعادة باستخدام نسخة احتياطية أولًا.
 - لم يتم اختبار هذا المشروع على هاتفك الفعلي ضمن هذه التسليم؛ اختبر الكاميرا والطباعة والمبيعات والاستيراد ببيانات تجريبية قبل الاعتماد اليومي عليه.
+
+## Correctif du scanner (version 2026-10-11)
+- Ouvrir l'application depuis son adresse HTTPS, par exemple GitHub Pages ; ouvrir le fichier HTML directement depuis le stockage du téléphone ne permet généralement pas d'accéder à la caméra.
+- Autoriser la caméra pour le site dans Chrome Android.
+- Le scanner essaie d'abord ZXing et utilise `BarcodeDetector` en secours si la bibliothèque n'est pas disponible. Une connexion Internet est nécessaire pour charger ZXing depuis le CDN.
+- Dans « Vente au comptoir », chaque code reconnu est ajouté au panier si ce code-barres existe dans « Produits » et si le stock est supérieur à zéro. Un code inconnu est indiqué à l'écran : il faut d'abord enregistrer ce code dans la fiche produit.
+- Tester avec un code-barres réel enregistré dans le catalogue avant utilisation en production.
+
+## إصلاح الماسح
+- افتح التطبيق عبر رابط HTTPS واسمح لمتصفح Chrome باستخدام الكاميرا.
+- يحاول التطبيق استخدام ZXing ثم ينتقل إلى `BarcodeDetector` عند الحاجة. يلزم اتصال بالإنترنت لتحميل مكتبة ZXing.
+- في قسم البيع، تتم إضافة المنتج تلقائيًا إلى السلة إذا كان الرمز الشريطي مسجلًا في قسم المنتجات وكانت الكمية أكبر من صفر. إذا كان الرمز غير معروف، أضفه أولًا إلى بطاقة المنتج.
