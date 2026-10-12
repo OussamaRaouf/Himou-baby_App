@@ -387,7 +387,28 @@ function useBarcode(code){
   if(scanTarget==='products'){$('productSearch').value=code;renderProducts();return;}
 }
 function stopScanner(){if(scanTimer)clearTimeout(scanTimer);scanTimer=null;if(zxingControls){try{zxingControls.stop()}catch(e){}zxingControls=null;}if(stream){stream.getTracks().forEach(x=>x.stop());stream=null;}scanEngine='';scanBusy=false;const video=$('camera');if(video)video.srcObject=null;const modal=$('scannerModal');if(modal)modal.classList.remove('open');}
-$('langBtn').onclick=()=>{lang=lang==='fr'?'ar':'fr';applyLang()};$('backupBtn').onclick=backup;$('exportBackup').onclick=backup;$('addProductBtn').onclick=()=>{$('productFormPanel').hidden=false;$('productForm').reset();$('pId').value='';$('pMin').value=db.settings.defaultMin??3;hideProductNameSuggestions()};$('cancelProduct').onclick=()=>{$('productFormPanel').hidden=true;hideProductNameSuggestions()};$('productForm').onsubmit=saveProduct;$('addCategoryBtn').onclick=addCategory;$('editCategoryBtn').onclick=editCategory;$('deleteCategoryBtn').onclick=deleteCategory;$('productSearch').oninput=renderProducts;$('exportProductsExcel').onclick=downloadProductsExcel;$('importProductsExcel').onchange=handleProductsExcelImport;$('pName').addEventListener('input',renderProductNameSuggestions);$('pName').addEventListener('focus',renderProductNameSuggestions);$('pName').addEventListener('blur',()=>setTimeout(hideProductNameSuggestions,180));$('stockSearch').oninput=renderStock;$('saleSearch').oninput=renderSaleResults;$('saleDiscount').oninput=renderCart;$('scanSale').onclick=()=>openScanner('sale');$('scanProduct').onclick=()=>openScanner('product');$('scanProducts').onclick=()=>openScanner('products');$('clearSale').onclick=()=>{cartItems=[];renderCart()};$('checkout').onclick=()=>checkout(true);$('checkoutOnly').onclick=()=>checkout(false);$('addSellerBtn').onclick=()=>$('sellerFormPanel').hidden=!$('sellerFormPanel').hidden;$('sellerForm').onsubmit=addSeller;$('closeScanner').onclick=stopScanner;$('useManual').onclick=()=>useBarcode($('manualBarcode').value);$('manualBarcode').onkeydown=e=>{if(e.key==='Enter')useBarcode(e.target.value)};$('settingsForm').onsubmit=e=>{e.preventDefault();db.settings.storeName=$('storeName').value.trim()||'Himou Baby';db.settings.currency=$('currency').value;db.settings.defaultMin=Number($('defaultMin').value)||0;saveDB();renderAll();alert(t('save'))};$('restoreFile').onchange=async e=>{
+$('langBtn').onclick=()=>{lang=lang==='fr'?'ar':'fr';applyLang()};$('backupBtn').onclick=backup;$('exportBackup').onclick=backup;$('addProductBtn').onclick=()=>{$('productFormPanel').hidden=false;$('productForm').reset();$('pId').value='';$('pMin').value=db.settings.defaultMin??3;hideProductNameSuggestions()};$('cancelProduct').onclick=()=>{$('productFormPanel').hidden=true;hideProductNameSuggestions()};$('productForm').onsubmit=saveProduct;$('addCategoryBtn').onclick=addCategory;$('editCategoryBtn').onclick=editCategory;$('deleteCategoryBtn').onclick=deleteCategory;$('productSearch').oninput=renderProducts;$('exportProductsExcel').onclick=downloadProductsExcel;$('importProductsExcel').onchange=handleProductsExcelImport;$('pName').addEventListener('input',renderProductNameSuggestions);$('pName').addEventListener('focus',renderProductNameSuggestions);$('pName').addEventListener('blur',()=>setTimeout(hideProductNameSuggestions,180));$('stockSearch').oninput=renderStock;
+let externalBarcodeTimer=null;
+function processSaleSearchBarcode(){
+  const field=$('saleSearch');if(!field)return;
+  const code=String(field.value||'').trim();if(!code)return;
+  const product=db.products.find(p=>String(p.barcode||'').trim().toLocaleLowerCase()===code.toLocaleLowerCase());
+  if(product){addCart(product.id);}
+}
+$('saleSearch').addEventListener('input',()=>{
+  renderSaleResults();
+  if(externalBarcodeTimer)clearTimeout(externalBarcodeTimer);
+  // Most phone scanner apps type the barcode into the focused field. Wait until
+  // the full code has arrived, then add the exact barcode match automatically.
+  externalBarcodeTimer=setTimeout(processSaleSearchBarcode,450);
+});
+$('saleSearch').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){
+    e.preventDefault();
+    if(externalBarcodeTimer)clearTimeout(externalBarcodeTimer);
+    processSaleSearchBarcode();
+  }
+});$('saleDiscount').oninput=renderCart;$('scanSale').onclick=()=>openScanner('sale');$('scanProduct').onclick=()=>openScanner('product');$('scanProducts').onclick=()=>openScanner('products');$('clearSale').onclick=()=>{cartItems=[];renderCart()};$('checkout').onclick=()=>checkout(true);$('checkoutOnly').onclick=()=>checkout(false);$('addSellerBtn').onclick=()=>$('sellerFormPanel').hidden=!$('sellerFormPanel').hidden;$('sellerForm').onsubmit=addSeller;$('closeScanner').onclick=stopScanner;$('useManual').onclick=()=>useBarcode($('manualBarcode').value);$('manualBarcode').onkeydown=e=>{if(e.key==='Enter')useBarcode(e.target.value)};$('settingsForm').onsubmit=e=>{e.preventDefault();db.settings.storeName=$('storeName').value.trim()||'Himou Baby';db.settings.currency=$('currency').value;db.settings.defaultMin=Number($('defaultMin').value)||0;saveDB();renderAll();alert(t('save'))};$('restoreFile').onchange=async e=>{
   const file=e.target.files&&e.target.files[0];
   if(!file){e.target.value='';return}
   try{
